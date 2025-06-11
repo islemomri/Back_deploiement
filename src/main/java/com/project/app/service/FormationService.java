@@ -1,6 +1,6 @@
 package com.project.app.service;
 import java.util.Optional;
-
+import java.util.Set;
 import java.time.LocalDate;
 
 import java.util.Comparator;
@@ -20,18 +20,27 @@ import org.springframework.web.multipart.MultipartFile;
 import com.project.app.dto.EmployeResultatDto;
 import com.project.app.dto.FormationDto;
 import com.project.app.dto.FormationDto_Resultat;
+import com.project.app.model.Competence;
+import com.project.app.model.CompetencePoste;
 import com.project.app.model.Employe;
+import com.project.app.model.EmployeCompetence;
 import com.project.app.model.Entete;
 import com.project.app.model.Formation;
+import com.project.app.model.FormationPoste;
 import com.project.app.model.PeriodeFormation;
+import com.project.app.model.Poste;
 import com.project.app.model.RH;
 import com.project.app.model.Responsable;
 import com.project.app.model.ResultatFormation;
 
 import com.project.app.model.Utilisateur;
+import com.project.app.repository.CompetenceRepository;
+import com.project.app.repository.EmployeCompetenceRepository;
 import com.project.app.repository.EmployeRepository;
 import com.project.app.repository.EnteteRepository;
+import com.project.app.repository.FormationPosteRepository;
 import com.project.app.repository.FormationRepository;
+import com.project.app.repository.PosteRepository;
 import com.project.app.repository.RHRepository;
 import com.project.app.repository.UtilisateurRepository;
 import com.project.app.repository.employeFormationRepository;
@@ -53,6 +62,8 @@ public class FormationService implements IFormationService {
     @Autowired
     private NotificationService notificationService;
     @Autowired
+    private FormationPosteRepository formationPosteRepository;
+    @Autowired
     private EmailService emailservice;
     
     @Autowired
@@ -61,7 +72,12 @@ public class FormationService implements IFormationService {
     private RHRepository rhrepository ;
     @Autowired
     private EnteteRepository enteteRepository;
-
+    @Autowired
+    private PosteRepository posteRepository;
+    @Autowired
+    private CompetenceRepository competenceRepository;
+    @Autowired
+    private EmployeCompetenceRepository employeCompetenceRepository;
     @Autowired
     public FormationService(FormationRepository formationRepository, UtilisateurRepository utilisateurRepository, EmployeRepository employeRepository) {
         this.formationRepository = formationRepository;
@@ -526,6 +542,42 @@ public class FormationService implements IFormationService {
         formationEmploye.setRes(true); // Changer le booléen Resultat en true
         if (resultat == ResultatFormation.REUSSI && habilite) {
             formationEmploye.setCapabilite(true);
+            
+            
+            Long posteId = formationPosteRepository.findByFormationId(formationId)
+                    .map(FormationPoste::getPosteId)
+                    .orElseThrow(() -> new RuntimeException("Aucun poste lié à cette formation."));
+
+            Poste poste = posteRepository.findById(posteId)
+                    .orElseThrow(() -> new RuntimeException("Poste non trouvé."));
+            
+            Set<CompetencePoste> competencesPoste = poste.getCompetencePostes();
+
+            Employe employe = employeRepository.findById(employeId)
+                    .orElseThrow(() -> new RuntimeException("Employé non trouvé"));
+            
+            for (CompetencePoste cp : competencesPoste) {
+                String nomCompetence = cp.getNom();
+
+                // Vérifier si la compétence existe déjà
+                Competence competence = competenceRepository.findByNom(nomCompetence)
+                        .orElseGet(() -> {
+                            Competence nouvelleCompetence = new Competence();
+                            nouvelleCompetence.setNom(nomCompetence);
+                            return competenceRepository.save(nouvelleCompetence);
+                        });
+
+                // Vérifier si l'employé a déjà cette compétence
+                boolean exists = employeCompetenceRepository.existsByEmployeIdAndCompetenceId(employeId, competence.getId());
+
+                if (!exists) {
+                    EmployeCompetence ec = new EmployeCompetence();
+                    ec.setEmploye(employe);
+                    ec.setCompetence(competence);
+                    ec.setNiveau("Débutant"); // Niveau par défaut
+                    employeCompetenceRepository.save(ec);
+                }
+            }
         } else {
             formationEmploye.setCapabilite(false);
         }
